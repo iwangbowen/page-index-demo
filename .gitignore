@@ -4,3 +4,5 @@ __pycache__
 .env*
 .venv/
 logs/
+webapp/uploads
+webapp/workspace/_meta.json
