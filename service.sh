@@ -28,7 +28,7 @@ mkdir -p "$LOG_DIR"
 # ── 检查 venv ─────────────────────────────────────────────────────────────────
 if [[ ! -f "$VENV/bin/activate" ]]; then
     echo "[ERROR] 虚拟环境不存在: $VENV"
-    echo "        请先运行: python -m venv .venv && pip install -r requirements.txt"
+    echo "        请先运行: python -m venv .venv && pip install --prefer-binary -r requirements.txt"
     exit 1
 fi
 
