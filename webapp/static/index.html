@@ -750,10 +750,11 @@ function makeDocItem(doc) {
   const d = document.createElement('div');
   d.className = 'doc-item';
   d.dataset.id = doc.doc_id;
+  const name = doc.filename || doc.doc_name;
   d.innerHTML = `
     <span class="doc-item-icon">📄</span>
     <div class="doc-item-info">
-      <div class="doc-item-name" title="${doc.doc_name}">${doc.doc_name}</div>
+      <div class="doc-item-name" title="${name}">${name}</div>
       <div class="doc-item-meta">${doc.page_count ? doc.page_count + ' 页' : 'PDF'}</div>
     </div>
     <button class="doc-item-del" title="删除">✕</button>`;
@@ -990,6 +991,7 @@ async function pollIndexStatus(taskId, pendingFileId) {
         const fallbackPages = pending ? pending.pageCount : (state.pendingUpload ? state.pendingUpload.page_count : 0);
         const doc = {
           doc_id: data.doc_id,
+          filename: data.filename || fallbackName,
           doc_name: data.doc_name || fallbackName,
           page_count: data.page_count || fallbackPages,
         };
