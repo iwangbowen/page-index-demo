@@ -17,7 +17,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV="$ROOT/.venv"
 APP_MODULE="webapp.app:app"
 HOST="${PAGEINDEX_HOST:-0.0.0.0}"
-PORT="${PAGEINDEX_PORT:-9999}"
+PORT="${PAGEINDEX_PORT:-9876}"
 WORKERS="${PAGEINDEX_WORKERS:-1}"
 LOG_DIR="$ROOT/logs"
 LOG_FILE="$LOG_DIR/webapp.log"
@@ -163,7 +163,7 @@ case "${1:-}" in
         echo ""
         echo "环境变量:"
         echo "  PAGEINDEX_HOST     监听地址（默认 0.0.0.0）"
-        echo "  PAGEINDEX_PORT     端口（默认 8000）"
+        echo "  PAGEINDEX_PORT     端口（默认 9876）"
         echo "  PAGEINDEX_WORKERS  worker 数量（默认 1）"
         exit 1
         ;;
