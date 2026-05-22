@@ -33,8 +33,10 @@ client = PageIndexClient(workspace=str(WORKSPACE_DIR))
 app = FastAPI(title="PageIndex Web")
 
 # In-memory state (cleared on restart)
-upload_registry: dict[str, dict] = {}   # file_id → {filename, file_path, page_count}
-indexing_tasks: dict[str, dict] = {}     # task_id → {status, doc_id, error}
+upload_registry: dict[str, dict] = (
+    {}
+)  # file_id → {filename, file_path, page_count}
+indexing_tasks: dict[str, dict] = {}  # task_id → {status, doc_id, error}
 
 
 # ── static ─────────────────────────────────────────────────────────────────────
@@ -84,8 +86,11 @@ async def get_uploaded_file(file_id: str):
         fp = str(UPLOAD_DIR / f"{file_id}.pdf")
         if not Path(fp).exists():
             raise HTTPException(404, "文件不存在")
-    return FileResponse(fp, media_type="application/pdf",
-                        headers={"Content-Disposition": "inline"})
+    return FileResponse(
+        fp,
+        media_type="application/pdf",
+        headers={"Content-Disposition": "inline"},
+    )
 
 
 @app.get("/api/pdf/{doc_id}")
@@ -97,8 +102,11 @@ async def get_doc_pdf(doc_id: str):
     fp = doc.get("path")
     if not fp or not Path(fp).exists():
         raise HTTPException(404, "原始 PDF 文件不存在")
-    return FileResponse(fp, media_type="application/pdf",
-                        headers={"Content-Disposition": "inline"})
+    return FileResponse(
+        fp,
+        media_type="application/pdf",
+        headers={"Content-Disposition": "inline"},
+    )
 
 
 # ── indexing ───────────────────────────────────────────────────────────────────
@@ -127,17 +135,24 @@ async def start_index(req: IndexRequest):
         upload_registry[req.file_id] = info  # Restore to registry
 
     task_id = str(uuid.uuid4())
-    indexing_tasks[task_id] = {"status": "pending", "doc_id": None, "error": None}
+    indexing_tasks[task_id] = {
+        "status": "pending",
+        "doc_id": None,
+        "error": None,
+    }
 
     async def _do_index():
         try:
             indexing_tasks[task_id]["status"] = "indexing"
             # 传递原始文件名
-            doc_id = await asyncio.to_thread(client.index, info["file_path"], "auto", info.get("filename"))
+            doc_id = await asyncio.to_thread(
+                client.index, info["file_path"], "auto", info.get("filename")
+            )
             indexing_tasks[task_id]["status"] = "done"
             indexing_tasks[task_id]["doc_id"] = doc_id
         except Exception as exc:
             import traceback
+
             traceback.print_exc()
             indexing_tasks[task_id]["status"] = "error"
             indexing_tasks[task_id]["error"] = str(exc)
@@ -166,16 +181,33 @@ async def get_index_status(task_id: str):
 # ── documents ──────────────────────────────────────────────────────────────────
 @app.get("/api/documents")
 async def list_documents():
-    return [
-        {
-            "doc_id": doc_id,
-            "filename": doc.get("filename") or doc.get("doc_name", ""),
-            "doc_name": doc.get("doc_name", ""),
-            "type": doc.get("type", ""),
-            "page_count": doc.get("page_count", 0),
-        }
-        for doc_id, doc in client.documents.items()
-    ]
+    docs_out = []
+    for doc_id, doc in client.documents.items():
+        filename = doc.get("filename")
+        if not filename:
+            full_path = WORKSPACE_DIR / f"{doc_id}.json"
+            if full_path.exists():
+                try:
+                    async with aiofiles.open(
+                        full_path, "r", encoding="utf-8"
+                    ) as f:
+                        full = json.loads(await f.read())
+                    filename = full.get("filename")
+                    if filename:
+                        doc["filename"] = filename
+                except Exception:
+                    pass
+        docs_out.append(
+            {
+                "doc_id": doc_id,
+                "filename": filename or doc.get("doc_name", ""),
+                "doc_name": doc.get("doc_name", ""),
+                "type": doc.get("type", ""),
+                "page_count": doc.get("page_count", 0),
+            }
+        )
+    return docs_out
+
 
 # ── doc structure API ──
 @app.get("/api/doc-structure/{doc_id}")
@@ -183,6 +215,8 @@ async def get_doc_structure(doc_id: str):
     doc = client.documents.get(doc_id)
     if not doc:
         raise HTTPException(404, "文档不存在")
+    if hasattr(client, "_ensure_doc_loaded"):
+        await asyncio.to_thread(client._ensure_doc_loaded, doc_id)
     return doc.get("structure") or []
 
 
@@ -252,7 +286,9 @@ async def chat(req: ChatRequest):
             reason = locate_data.get("reason", "")
 
             yield _sse({"type": "source", "pages": pages, "reason": reason})
-            yield _sse({"type": "status", "content": f"正在读取第 {pages} 页内容..."})
+            yield _sse(
+                {"type": "status", "content": f"正在读取第 {pages} 页内容..."}
+            )
 
             # ── Step 2: fetch page content ────────────────────────────────────
             page_content = await asyncio.to_thread(
@@ -293,6 +329,7 @@ async def chat(req: ChatRequest):
 
         except Exception as exc:
             import traceback
+
             traceback.print_exc()
             yield _sse({"type": "error", "content": str(exc)})
 

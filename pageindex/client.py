@@ -32,7 +32,14 @@ class PageIndexClient:
 
     For agent-based QA, see examples/agentic_vectorless_rag_demo.py.
     """
-    def __init__(self, api_key: str = None, model: str = None, retrieve_model: str = None, workspace: str = None):
+
+    def __init__(
+        self,
+        api_key: str = None,
+        model: str = None,
+        retrieve_model: str = None,
+        workspace: str = None,
+    ):
         if api_key:
             os.environ["OPENAI_API_KEY"] = api_key
         elif not os.getenv("OPENAI_API_KEY") and os.getenv("CHATGPT_API_KEY"):
@@ -45,14 +52,18 @@ class PageIndexClient:
             overrides["retrieve_model"] = retrieve_model
         opt = ConfigLoader().load(overrides or None)
         self.model = opt.model
-        self.retrieve_model = _normalize_retrieve_model(opt.retrieve_model or self.model)
+        self.retrieve_model = _normalize_retrieve_model(
+            opt.retrieve_model or self.model
+        )
         if self.workspace:
             self.workspace.mkdir(parents=True, exist_ok=True)
         self.documents = {}
         if self.workspace:
             self._load_workspace()
 
-    def index(self, file_path: str, mode: str = "auto", filename: str = None) -> str:
+    def index(
+        self, file_path: str, mode: str = "auto", filename: str = None
+    ) -> str:
         """Index a document. Returns a document_id."""
         # Persist a canonical absolute path so workspace reloads do not
         # reinterpret caller-relative paths against the workspace directory.
@@ -81,7 +92,9 @@ class PageIndexClient:
             with open(file_path, 'rb') as f:
                 pdf_reader = PyPDF2.PdfReader(f)
                 for i, page in enumerate(pdf_reader.pages, 1):
-                    pages.append({'page': i, 'content': page.extract_text() or ''})
+                    pages.append(
+                        {'page': i, 'content': page.extract_text() or ''}
+                    )
 
             self.documents[doc_id] = {
                 'id': doc_id,
@@ -105,11 +118,13 @@ class PageIndexClient:
                 model=self.model,
                 if_add_doc_description='yes',
                 if_add_node_text='yes',
-                if_add_node_id='yes'
+                if_add_node_id='yes',
             )
             try:
                 asyncio.get_running_loop()
-                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                with concurrent.futures.ThreadPoolExecutor(
+                    max_workers=1
+                ) as pool:
                     result = pool.submit(asyncio.run, coro).result()
             except RuntimeError:
                 result = asyncio.run(coro)
@@ -139,6 +154,8 @@ class PageIndexClient:
             'doc_description': doc.get('doc_description', ''),
             'path': doc.get('path', ''),
         }
+        if doc.get('filename'):
+            entry['filename'] = doc['filename']
         if doc.get('type') == 'pdf':
             entry['page_count'] = doc.get('page_count')
         elif doc.get('type') == 'md':
@@ -199,7 +216,9 @@ class PageIndexClient:
         if meta is None:
             meta = self._rebuild_meta()
             if meta:
-                print(f"Loaded {len(meta)} document(s) from workspace (legacy mode).")
+                print(
+                    f"Loaded {len(meta)} document(s) from workspace (legacy mode)."
+                )
         for doc_id, entry in meta.items():
             doc = dict(entry, id=doc_id)
             if doc.get('path') and not os.path.isabs(doc['path']):

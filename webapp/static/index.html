@@ -230,7 +230,10 @@ body {
   transition: background 0.15s;
   box-shadow: 0 2px 8px rgba(78,110,242,0.25);
 }
-.btn-index:hover { background: #3d5fd1; }
+.btn-index:disabled { background: #a0a8b5; cursor: not-allowed; box-shadow: none; opacity: 0.85; }
+.btn-index:hover:not(:disabled) { background: #3d5fd1; }
+.btn-index .spin { animation: btn-spin 0.9s linear infinite; transform-origin: center; }
+@keyframes btn-spin { to { transform: rotate(360deg); } }
 .pdf-viewer { flex: 1; overflow: hidden; }
 .pdf-viewer iframe { width: 100%; height: 100%; border: none; display: block; }
 
@@ -723,14 +726,27 @@ function addPendingItem(fileId, filename, pageCount) {
 
 function restorePendingPreview(fileId) {
   const item = pendingItems[fileId];
-  if (!item || item.indexing) return;
+  if (!item) return;
   const { filename, pageCount } = item;
   state.pendingUpload = { file_id: fileId, filename, page_count: pageCount };
   document.getElementById('preview-name').textContent = filename;
   document.getElementById('preview-meta').textContent = `${pageCount} 页 · PDF`;
   document.getElementById('pdf-frame').src = `/api/files/${fileId}`;
   setActivePendingItem(fileId);
+  setIndexButtonState(item.indexing ? 'indexing' : 'idle');
   showState('state-preview');
+}
+
+function setIndexButtonState(mode) {
+  const btn = document.getElementById('index-btn');
+  if (!btn) return;
+  if (mode === 'indexing') {
+    btn.disabled = true;
+    btn.innerHTML = `<svg class="spin" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>索引中`;
+  } else {
+    btn.disabled = false;
+    btn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>开始索引`;
+  }
 }
 
 function setActivePendingItem(fileId) {
@@ -743,8 +759,6 @@ function setPendingItemIndexing(fileId) {
   const item = pendingItems[fileId];
   if (!item) return;
   item.indexing = true;
-  item.element.onclick = null;
-  item.element.style.cursor = 'default';
   const badge = item.element.querySelector('.status-badge');
   if (badge) { badge.className = 'status-badge badge-indexing'; badge.textContent = '索引中'; }
 }
@@ -855,8 +869,11 @@ async function doUpload(file) {
 document.getElementById('index-btn').onclick = async () => {
   if (!state.pendingUpload) return;
   const { file_id, filename } = state.pendingUpload;
+  const item = pendingItems[file_id];
+  if (item && item.indexing) return;
 
   setPendingItemIndexing(file_id);
+  setIndexButtonState('indexing');
   // document.getElementById('indexing-filename').textContent = filename;
   // showState('state-indexing');
 
@@ -871,6 +888,8 @@ document.getElementById('index-btn').onclick = async () => {
     await pollIndexStatus(task_id, file_id);
   } catch (e) {
     alert('索引失败：' + e.message);
+    if (item) item.indexing = false;
+    setIndexButtonState('idle');
     showState('state-preview');
   }
 };
@@ -907,14 +926,20 @@ async function pollIndexStatus(taskId, pendingFileId) {
 
       if (data.status === 'done') {
         clearInterval(anim);
+        const pending = pendingItems[pendingFileId];
+        const fallbackName = pending ? pending.filename : (state.pendingUpload ? state.pendingUpload.filename : '');
+        const fallbackPages = pending ? pending.pageCount : (state.pendingUpload ? state.pendingUpload.page_count : 0);
         const doc = {
           doc_id: data.doc_id,
-          doc_name: data.doc_name || state.pendingUpload.filename,
-          page_count: data.page_count || state.pendingUpload.page_count,
+          doc_name: data.doc_name || fallbackName,
+          page_count: data.page_count || fallbackPages,
         };
         convertPendingToDoc(pendingFileId, doc);
-        state.pendingUpload = null;
-        openChatForDoc(doc);
+        if (state.pendingUpload && state.pendingUpload.file_id === pendingFileId) {
+          state.pendingUpload = null;
+          setIndexButtonState('idle');
+          openChatForDoc(doc);
+        }
         return;
       }
       if (data.status === 'error') {
@@ -924,8 +949,16 @@ async function pollIndexStatus(taskId, pendingFileId) {
     }
   } catch (e) {
     clearInterval(anim);
+    const pending = pendingItems[pendingFileId];
+    if (pending) {
+      pending.indexing = false;
+      const badge = pending.element.querySelector('.status-badge');
+      if (badge) { badge.className = 'status-badge badge-pending'; badge.textContent = '待索引'; }
+    }
+    if (state.pendingUpload && state.pendingUpload.file_id === pendingFileId) {
+      setIndexButtonState('idle');
+    }
     alert('索引失败：' + e.message);
-    showState('state-preview');
   }
 }
 
@@ -950,12 +983,13 @@ function openChatForDoc(doc) {
   };
 // ── 结构弹窗 ──
 function showStructureDialog(struct, title) {
-  let html = `<div style="font-weight:600;font-size:16px;margin-bottom:8px;">${escapeHtml(title)} 结构</div>`;
+  let html = `<div style="font-weight:600;font-size:16px;margin-bottom:12px;color:#1a1a2e;">${escapeHtml(title)} 结构</div>`;
   html += renderStructureTree(struct);
   const dlg = document.createElement('div');
   dlg.className = 'modal-structure';
-  dlg.innerHTML = `<div class="modal-structure-inner">${html}<button class="btn-sec" id="close-struct">关闭</button></div>`;
-  Object.assign(dlg.style, {position:'fixed',left:0,top:0,right:0,bottom:0,background:'rgba(0,0,0,0.18)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center'});
+  dlg.innerHTML = `<div class="modal-structure-inner" style="background:#fff;border-radius:12px;padding:20px 24px;max-width:720px;max-height:80vh;width:90vw;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,0.25);position:relative;">${html}<div style="text-align:right;margin-top:16px;"><button class="btn-sec" id="close-struct" style="padding:6px 16px;border:1px solid #e8e9eb;background:#fff;border-radius:6px;cursor:pointer;">关闭</button></div></div>`;
+  Object.assign(dlg.style, {position:'fixed',left:0,top:0,right:0,bottom:0,background:'rgba(0,0,0,0.45)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center'});
+  dlg.addEventListener('click', e => { if (e.target === dlg) dlg.remove(); });
   dlg.querySelector('#close-struct').onclick = () => dlg.remove();
   document.body.appendChild(dlg);
 }
