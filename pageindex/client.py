@@ -1,8 +1,8 @@
-import os
-import uuid
-import json
 import asyncio
 import concurrent.futures
+import json
+import os
+import uuid
 from pathlib import Path
 
 import PyPDF2
@@ -52,7 +52,7 @@ class PageIndexClient:
         if self.workspace:
             self._load_workspace()
 
-    def index(self, file_path: str, mode: str = "auto") -> str:
+    def index(self, file_path: str, mode: str = "auto", filename: str = None) -> str:
         """Index a document. Returns a document_id."""
         # Persist a canonical absolute path so workspace reloads do not
         # reinterpret caller-relative paths against the workspace directory.
@@ -74,7 +74,7 @@ class PageIndexClient:
                 if_add_node_summary='yes',
                 if_add_node_text='yes',
                 if_add_node_id='yes',
-                if_add_doc_description='yes'
+                if_add_doc_description='yes',
             )
             # Extract per-page text so queries don't need the original PDF
             pages = []
@@ -87,6 +87,7 @@ class PageIndexClient:
                 'id': doc_id,
                 'type': 'pdf',
                 'path': file_path,
+                'filename': filename or os.path.basename(file_path),
                 'doc_name': result.get('doc_name', ''),
                 'doc_description': result.get('doc_description', ''),
                 'page_count': len(pages),

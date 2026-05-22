@@ -601,6 +601,7 @@ body {
         <span class="chat-doc-icon">📄</span>
         <span class="chat-doc-name" id="chat-doc-name">—</span>
         <span class="chat-doc-meta" id="chat-doc-meta"></span>
+        <button class="btn-sec" id="btn-view-structure">查看结构</button>
         <button class="btn-sec" id="btn-view-pdf">查看原文</button>
       </div>
 
@@ -934,11 +935,45 @@ function openChatForDoc(doc) {
   state.chatHistory = [];
   state.isStreaming = false;
 
-  document.getElementById('chat-doc-name').textContent = doc.doc_name;
+  document.getElementById('chat-doc-name').textContent = doc.filename || doc.doc_name;
   document.getElementById('chat-doc-meta').textContent =
     doc.page_count ? `${doc.page_count} 页` : '';
   document.getElementById('chat-welcome-text').textContent =
-    `向「${doc.doc_name}」提问`;
+    `向「${doc.filename || doc.doc_name}」提问`;
+
+  // 结构按钮事件
+  document.getElementById('btn-view-structure').onclick = async () => {
+    const r = await fetch(`/api/doc-structure/${doc.doc_id}`);
+    if (!r.ok) return alert('获取结构失败');
+    const struct = await r.json();
+    showStructureDialog(struct, doc.filename || doc.doc_name);
+  };
+// ── 结构弹窗 ──
+function showStructureDialog(struct, title) {
+  let html = `<div style="font-weight:600;font-size:16px;margin-bottom:8px;">${escapeHtml(title)} 结构</div>`;
+  html += renderStructureTree(struct);
+  const dlg = document.createElement('div');
+  dlg.className = 'modal-structure';
+  dlg.innerHTML = `<div class="modal-structure-inner">${html}<button class="btn-sec" id="close-struct">关闭</button></div>`;
+  Object.assign(dlg.style, {position:'fixed',left:0,top:0,right:0,bottom:0,background:'rgba(0,0,0,0.18)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center'});
+  dlg.querySelector('#close-struct').onclick = () => dlg.remove();
+  document.body.appendChild(dlg);
+}
+
+function renderStructureTree(nodes, level=0) {
+  if (!nodes || !nodes.length) return '<div style="color:#aaa">无结构信息</div>';
+  let html = '<ul style="margin:0 0 0 12px;padding:0;list-style:none;">';
+  for (const node of nodes) {
+    html += `<li style="margin:2px 0 2px 0;padding-left:${level*10}px;">
+      <span style="font-weight:${level?400:600};color:${level?"#222":"#1a1a2e"}">${escapeHtml(node.title||'无标题')}</span>
+      <span style="color:#aaa;font-size:12px;margin-left:6px;">${node.start_index||''}${node.end_index?'-'+node.end_index:''}</span>`;
+    if (node.nodes && node.nodes.length)
+      html += renderStructureTree(node.nodes, level+1);
+    html += '</li>';
+  }
+  html += '</ul>';
+  return html;
+}
 
   // Reset messages
   const msgs = document.getElementById('chat-messages');

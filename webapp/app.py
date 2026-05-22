@@ -120,7 +120,7 @@ async def start_index(req: IndexRequest):
         except Exception:
             page_count = 0
         info = {
-            "filename": file_path.name,
+            "filename": file_path.name,  # fallback, 但优先用 upload_registry
             "file_path": str(file_path),
             "page_count": page_count,
         }
@@ -132,7 +132,8 @@ async def start_index(req: IndexRequest):
     async def _do_index():
         try:
             indexing_tasks[task_id]["status"] = "indexing"
-            doc_id = await asyncio.to_thread(client.index, info["file_path"])
+            # 传递原始文件名
+            doc_id = await asyncio.to_thread(client.index, info["file_path"], "auto", info.get("filename"))
             indexing_tasks[task_id]["status"] = "done"
             indexing_tasks[task_id]["doc_id"] = doc_id
         except Exception as exc:
@@ -156,6 +157,7 @@ async def get_index_status(task_id: str):
     result = {k: v for k, v in task.items() if k != "_task"}
     if task["status"] == "done" and task["doc_id"]:
         doc = client.documents.get(task["doc_id"], {})
+        result["filename"] = doc.get("filename") or doc.get("doc_name", "")
         result["doc_name"] = doc.get("doc_name", "")
         result["page_count"] = doc.get("page_count", 0)
     return result
@@ -167,12 +169,21 @@ async def list_documents():
     return [
         {
             "doc_id": doc_id,
+            "filename": doc.get("filename") or doc.get("doc_name", ""),
             "doc_name": doc.get("doc_name", ""),
             "type": doc.get("type", ""),
             "page_count": doc.get("page_count", 0),
         }
         for doc_id, doc in client.documents.items()
     ]
+
+# ── doc structure API ──
+@app.get("/api/doc-structure/{doc_id}")
+async def get_doc_structure(doc_id: str):
+    doc = client.documents.get(doc_id)
+    if not doc:
+        raise HTTPException(404, "文档不存在")
+    return doc.get("structure") or []
 
 
 @app.delete("/api/documents/{doc_id}")
