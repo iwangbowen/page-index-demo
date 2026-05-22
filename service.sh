@@ -22,6 +22,7 @@ WORKERS="${PAGEINDEX_WORKERS:-1}"
 LOG_DIR="$ROOT/logs"
 LOG_FILE="$LOG_DIR/webapp.log"
 PID_FILE="$LOG_DIR/webapp.pid"
+PGID_FILE="$LOG_DIR/webapp.pgid"
 
 mkdir -p "$LOG_DIR"
 
@@ -78,6 +79,8 @@ cmd_start() {
         >> "$LOG_FILE" 2>&1 &
     local pid=$!
     echo "$pid" > "$PID_FILE"
+    # 记录进程组 ID，用于 stop 时彻底清理所有子进程
+    ps -o pgid= -p "$pid" 2>/dev/null | tr -d ' ' > "$PGID_FILE"
     echo "[INFO] 进程 PID: $pid，日志: $LOG_FILE"
 
     if _wait_start "$pid"; then
@@ -86,24 +89,31 @@ cmd_start() {
 }
 
 cmd_stop() {
-    local pid
+    local pid pgid
     pid=$(_pid)
     if [[ -z "$pid" ]] || ! kill -0 "$pid" 2>/dev/null; then
         echo "[INFO] 服务未在运行"
-        rm -f "$PID_FILE"
+        rm -f "$PID_FILE" "$PGID_FILE"
         return 0
     fi
-    echo "[INFO] 停止服务 (PID $pid) …"
-    kill "$pid"
+    # 优先按进程组 kill，确保所有 uvicorn worker 子进程一起退出
+    pgid=$(cat "$PGID_FILE" 2>/dev/null)
+    echo "[INFO] 停止服务 (PID $pid, PGID ${pgid:-未知}) …"
+    if [[ -n "$pgid" ]] && [[ "$pgid" =~ ^[0-9]+$ ]]; then
+        kill -- "-$pgid" 2>/dev/null || kill "$pid" 2>/dev/null || true
+    else
+        kill "$pid" 2>/dev/null || true
+    fi
     local tries=20
     while (( tries-- > 0 )) && kill -0 "$pid" 2>/dev/null; do
         sleep 0.5
     done
     if kill -0 "$pid" 2>/dev/null; then
         echo "[WARN] 进程未退出，强制 kill"
+        [[ -n "$pgid" ]] && kill -9 -- "-$pgid" 2>/dev/null || true
         kill -9 "$pid" 2>/dev/null || true
     fi
-    rm -f "$PID_FILE"
+    rm -f "$PID_FILE" "$PGID_FILE"
     echo "[OK]  服务已停止"
 }
 
