@@ -145,10 +145,10 @@ cmd_logs() {
 }
 
 cmd_dev() {
-    echo "[INFO] 开发模式（热重载）→ http://127.0.0.1:$PORT"
+    echo "[INFO] 开发模式（热重载）→ http://$HOST:$PORT"
     cd "$ROOT"
     "$UVICORN" "$APP_MODULE" \
-        --host 127.0.0.1 \
+        --host "$HOST" \
         --port "$PORT" \
         --reload \
         --log-level debug \
