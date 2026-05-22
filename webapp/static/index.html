@@ -280,7 +280,48 @@ body {
 }
 
 /* ── Chat state ── */
-#state-chat { background: #f7f7f8; }
+#state-chat { background: #f7f7f8; flex-direction: row; }
+.chat-main { flex: 1; display: flex; flex-direction: column; min-width: 0; height: 100%; }
+.side-panel {
+  display: none;
+  flex-direction: column;
+  background: #fff;
+  border-left: 1px solid #e8e9eb;
+  height: 100%;
+  min-width: 0;
+}
+.side-panel.open { display: flex; }
+.side-panel-pdf { flex: 1 1 50%; min-width: 320px; }
+.side-panel-structure { flex: 0 0 320px; }
+.side-panel-head {
+  height: 44px;
+  padding: 0 14px;
+  border-bottom: 1px solid #e8e9eb;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  background: #fafbfc;
+}
+.side-panel-title { flex: 1; font-size: 13px; font-weight: 600; color: #374151; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.side-panel-close {
+  width: 24px; height: 24px;
+  border: none; background: transparent;
+  color: #6b7280; cursor: pointer; border-radius: 4px;
+  font-size: 16px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+}
+.side-panel-close:hover { background: #eef0f3; color: #1a1a2e; }
+.side-panel-body { flex: 1; overflow: auto; min-height: 0; }
+.side-panel-pdf .side-panel-body { overflow: hidden; }
+.side-panel-pdf iframe { width: 100%; height: 100%; border: none; display: block; }
+.structure-tree { padding: 12px 14px; font-size: 13px; color: #1a1a2e; }
+.structure-tree ul { list-style: none; margin: 0; padding: 0; }
+.structure-tree li { padding: 3px 0; }
+.structure-node { display: flex; gap: 6px; align-items: baseline; }
+.structure-node-title { flex: 1; }
+.structure-node-pages { color: #9ca3af; font-size: 11px; flex-shrink: 0; }
+.btn-sec.active { background: #eef0ff; color: #4e6ef2; border-color: #c7d2fe; }
 .chat-topbar {
   height: 56px;
   background: #fff;
@@ -600,32 +641,50 @@ body {
 
     <!-- Chat state -->
     <div class="main-state" id="state-chat">
-      <div class="chat-topbar">
-        <span class="chat-doc-icon">📄</span>
-        <span class="chat-doc-name" id="chat-doc-name">—</span>
-        <span class="chat-doc-meta" id="chat-doc-meta"></span>
-        <button class="btn-sec" id="btn-view-structure">查看结构</button>
-        <button class="btn-sec" id="btn-view-pdf">查看原文</button>
-      </div>
+      <div class="chat-main">
+        <div class="chat-topbar">
+          <span class="chat-doc-icon">📄</span>
+          <span class="chat-doc-name" id="chat-doc-name">—</span>
+          <span class="chat-doc-meta" id="chat-doc-meta"></span>
+          <button class="btn-sec" id="btn-view-structure">查看结构</button>
+          <button class="btn-sec" id="btn-view-pdf">查看原文</button>
+        </div>
 
-      <div class="chat-messages" id="chat-messages">
-        <div class="chat-welcome" id="chat-welcome">
-          <div class="chat-welcome-icon">💬</div>
-          <div class="chat-welcome-text" id="chat-welcome-text">向文档提问吧</div>
-          <div class="chat-welcome-hint">基于完整文档结构的精准语义检索</div>
+        <div class="chat-messages" id="chat-messages">
+          <div class="chat-welcome" id="chat-welcome">
+            <div class="chat-welcome-icon">💬</div>
+            <div class="chat-welcome-text" id="chat-welcome-text">向文档提问吧</div>
+            <div class="chat-welcome-hint">基于完整文档结构的精准语义检索</div>
+          </div>
+        </div>
+
+        <div class="chat-input-area">
+          <div class="chat-input-wrap">
+            <textarea id="chat-input" rows="1" placeholder="向文档提问… (Enter 发送，Shift+Enter 换行)"></textarea>
+            <button class="btn-send" id="send-btn" disabled>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
 
-      <div class="chat-input-area">
-        <div class="chat-input-wrap">
-          <textarea id="chat-input" rows="1" placeholder="向文档提问… (Enter 发送，Shift+Enter 换行)"></textarea>
-          <button class="btn-send" id="send-btn" disabled>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
-            </svg>
-          </button>
+      <aside class="side-panel side-panel-pdf" id="panel-pdf">
+        <div class="side-panel-head">
+          <span class="side-panel-title">原文预览</span>
+          <button class="side-panel-close" data-panel="pdf" title="关闭">×</button>
         </div>
-      </div>
+        <div class="side-panel-body"><iframe id="panel-pdf-frame" src="about:blank"></iframe></div>
+      </aside>
+
+      <aside class="side-panel side-panel-structure" id="panel-structure">
+        <div class="side-panel-head">
+          <span class="side-panel-title">文档结构</span>
+          <button class="side-panel-close" data-panel="structure" title="关闭">×</button>
+        </div>
+        <div class="side-panel-body"><div class="structure-tree" id="panel-structure-body">加载中…</div></div>
+      </aside>
     </div>
 
   </main>
@@ -968,53 +1027,26 @@ function openChatForDoc(doc) {
   state.chatHistory = [];
   state.isStreaming = false;
 
-  document.getElementById('chat-doc-name').textContent = doc.filename || doc.doc_name;
+  const displayName = doc.filename || doc.doc_name;
+  document.getElementById('chat-doc-name').textContent = displayName;
   document.getElementById('chat-doc-meta').textContent =
     doc.page_count ? `${doc.page_count} 页` : '';
   document.getElementById('chat-welcome-text').textContent =
-    `向「${doc.filename || doc.doc_name}」提问`;
+    `向「${displayName}」提问`;
 
-  // 结构按钮事件
-  document.getElementById('btn-view-structure').onclick = async () => {
-    const r = await fetch(`/api/doc-structure/${doc.doc_id}`);
-    if (!r.ok) return alert('获取结构失败');
-    const struct = await r.json();
-    showStructureDialog(struct, doc.filename || doc.doc_name);
-  };
-// ── 结构弹窗 ──
-function showStructureDialog(struct, title) {
-  let html = `<div style="font-weight:600;font-size:16px;margin-bottom:12px;color:#1a1a2e;">${escapeHtml(title)} 结构</div>`;
-  html += renderStructureTree(struct);
-  const dlg = document.createElement('div');
-  dlg.className = 'modal-structure';
-  dlg.innerHTML = `<div class="modal-structure-inner" style="background:#fff;border-radius:12px;padding:20px 24px;max-width:720px;max-height:80vh;width:90vw;overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,0.25);position:relative;">${html}<div style="text-align:right;margin-top:16px;"><button class="btn-sec" id="close-struct" style="padding:6px 16px;border:1px solid #e8e9eb;background:#fff;border-radius:6px;cursor:pointer;">关闭</button></div></div>`;
-  Object.assign(dlg.style, {position:'fixed',left:0,top:0,right:0,bottom:0,background:'rgba(0,0,0,0.45)',zIndex:9999,display:'flex',alignItems:'center',justifyContent:'center'});
-  dlg.addEventListener('click', e => { if (e.target === dlg) dlg.remove(); });
-  dlg.querySelector('#close-struct').onclick = () => dlg.remove();
-  document.body.appendChild(dlg);
-}
-
-function renderStructureTree(nodes, level=0) {
-  if (!nodes || !nodes.length) return '<div style="color:#aaa">无结构信息</div>';
-  let html = '<ul style="margin:0 0 0 12px;padding:0;list-style:none;">';
-  for (const node of nodes) {
-    html += `<li style="margin:2px 0 2px 0;padding-left:${level*10}px;">
-      <span style="font-weight:${level?400:600};color:${level?"#222":"#1a1a2e"}">${escapeHtml(node.title||'无标题')}</span>
-      <span style="color:#aaa;font-size:12px;margin-left:6px;">${node.start_index||''}${node.end_index?'-'+node.end_index:''}</span>`;
-    if (node.nodes && node.nodes.length)
-      html += renderStructureTree(node.nodes, level+1);
-    html += '</li>';
-  }
-  html += '</ul>';
-  return html;
-}
+  // 结构/原文 侧边栏按钮
+  document.getElementById('btn-view-structure').onclick = () => toggleSidePanel('structure', doc);
+  document.getElementById('btn-view-pdf').onclick = () => toggleSidePanel('pdf', doc);
+  // 默认关闭侧边栏
+  closeSidePanel('structure');
+  closeSidePanel('pdf');
 
   // Reset messages
   const msgs = document.getElementById('chat-messages');
   msgs.innerHTML = `
     <div class="chat-welcome" id="chat-welcome">
       <div class="chat-welcome-icon">💬</div>
-      <div class="chat-welcome-text">向「${doc.doc_name}」提问</div>
+      <div class="chat-welcome-text">向「${displayName}」提问</div>
       <div class="chat-welcome-hint">基于完整文档结构的精准语义检索</div>
     </div>`;
 
@@ -1025,9 +1057,60 @@ function renderStructureTree(nodes, level=0) {
   document.getElementById('chat-input').focus();
 }
 
-document.getElementById('btn-view-pdf').onclick = () => {
-  if (state.currentDocId) window.open(`/api/pdf/${state.currentDocId}`, '_blank');
-};
+// ── 侧边栏 ──
+function closeSidePanel(kind) {
+  const panel = document.getElementById('panel-' + kind);
+  if (panel) panel.classList.remove('open');
+  const btn = document.getElementById(kind === 'pdf' ? 'btn-view-pdf' : 'btn-view-structure');
+  if (btn) btn.classList.remove('active');
+  if (kind === 'pdf') {
+    const frame = document.getElementById('panel-pdf-frame');
+    if (frame) frame.src = 'about:blank';
+  }
+}
+
+async function toggleSidePanel(kind, doc) {
+  const panel = document.getElementById('panel-' + kind);
+  const btn = document.getElementById(kind === 'pdf' ? 'btn-view-pdf' : 'btn-view-structure');
+  if (!panel) return;
+  if (panel.classList.contains('open')) {
+    closeSidePanel(kind);
+    return;
+  }
+  panel.classList.add('open');
+  if (btn) btn.classList.add('active');
+  if (kind === 'pdf') {
+    document.getElementById('panel-pdf-frame').src = `/api/pdf/${doc.doc_id}`;
+  } else {
+    const body = document.getElementById('panel-structure-body');
+    body.textContent = '加载中…';
+    try {
+      const r = await fetch(`/api/doc-structure/${doc.doc_id}`);
+      if (!r.ok) throw new Error('获取结构失败');
+      const struct = await r.json();
+      body.innerHTML = renderStructureTree(struct);
+    } catch (e) {
+      body.innerHTML = `<div style="color:#ef4444;padding:8px;">${escapeHtml(e.message)}</div>`;
+    }
+  }
+}
+
+function renderStructureTree(nodes, level=0) {
+  if (!nodes || !nodes.length) return '<div style="color:#aaa;padding:8px;">无结构信息</div>';
+  let html = '<ul' + (level === 0 ? '' : ' style="padding-left:14px;border-left:1px dashed #e5e7eb;margin-left:4px;"') + '>';
+  for (const node of nodes) {
+    const pages = node.start_index ? (node.end_index && node.end_index !== node.start_index ? `p.${node.start_index}-${node.end_index}` : `p.${node.start_index}`) : '';
+    html += `<li><div class="structure-node"><span class="structure-node-title" style="font-weight:${level?400:600};">${escapeHtml(node.title||'无标题')}</span><span class="structure-node-pages">${pages}</span></div>`;
+    if (node.nodes && node.nodes.length) html += renderStructureTree(node.nodes, level+1);
+    html += '</li>';
+  }
+  html += '</ul>';
+  return html;
+}
+
+document.querySelectorAll('.side-panel-close').forEach(b => {
+  b.onclick = () => closeSidePanel(b.dataset.panel);
+});
 
 const chatInput = document.getElementById('chat-input');
 const sendBtn = document.getElementById('send-btn');
