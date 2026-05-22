@@ -74,6 +74,7 @@ cmd_start() {
         --port "$PORT" \
         --workers "$WORKERS" \
         --log-level info \
+        --no-use-colors \
         >> "$LOG_FILE" 2>&1 &
     local pid=$!
     echo "$pid" > "$PID_FILE"
@@ -140,7 +141,8 @@ cmd_dev() {
         --host 127.0.0.1 \
         --port "$PORT" \
         --reload \
-        --log-level debug
+        --log-level debug \
+        --no-use-colors
 }
 
 # ── 入口 ──────────────────────────────────────────────────────────────────────
