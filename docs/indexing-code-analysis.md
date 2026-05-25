@@ -665,6 +665,72 @@ def toc_transformer(toc_content, model=None):
 
 ## 五、模式A详解：有目录 + 有页码
 
+### 完整执行路径（从入口到输出）
+
+**触发条件**：PDF 有目录页，且目录中含有页码数字（如"第一章 概述 …… 1"）。
+
+整个流程共 5 个阶段，**目录提取阶段全部顺序，后续验证阶段全部并发**：
+
+**阶段 1：find_toc_pages — 逐页扫描，找到目录页**
+
+- 从第 1 页开始**逐页**调用 LLM 问"这是目录页吗"（顺序）
+- 找到目录后继续向后扫，判断目录是否延续多页
+- `check_toc` 确认目录中含有页码 → 直接进入 Mode A，无需继续扫描
+- 典型情况：目录在第 3 页 → 共调用 3 次 LLM，耗时约 12 秒
+
+**阶段 2：process_toc_with_page_numbers 内部 — 5 个顺序子步骤**
+
+2a. **toc_transformer**（顺序，2~12 次 LLM）
+
+- 目录原始文本 → 结构化 JSON，含 `structure`、`title`、`page` 三个字段
+- `page` 字段来自目录里的印刷页码（不是物理页码，是人看到的页码）
+- 输出：`[{"structure":"1","title":"概述","page":1}, {"structure":"2","title":"安装","page":8}]`
+
+2b. **toc_index_extractor**（顺序，1 次 LLM）— **Mode A 的核心**
+
+- 只读目录后紧接的约 20 页正文（`toc_check_page_num=20`，带 `<physical_index_N>` 标签）
+- LLM 任务：找到哪些章节标题出现在哪些 physical_index 上
+- 输出：`[{"title":"概述","physical_index":"<physical_index_3>"}, ...]`
+
+2c. **calculate_page_offset**（纯算法）
+
+- 配对"目录页码"与"物理页码"，计算偏移量
+- 示例：目录说第 1 章在 page=1，LLM 找到它在 physical_index=3 → offset=2
+- 取差值的众数（容错），无需 LLM
+
+2d. **add_page_offset_to_toc_json**（纯算法）
+
+- 给所有条目批量加偏移量：`physical_index = page + offset`
+- 整个文档全部条目一次性完成，**不扫全文**
+
+2e. **process_none_page_numbers**（按需，每缺失条目 1 次 LLM，顺序）
+
+- 若某些目录条目本身就没有印刷页码（如子章节仅列标题），则补充扫描
+- 每个缺失条目：取前后已知页码之间的文本，1 次 LLM 定位
+
+**阶段 3：verify_toc — 并发验证准确率**
+
+- 所有条目**全并发**，约 4 秒（与条目数无关）
+- accuracy ≤ 0.6 → 降级到 Mode B
+
+**阶段 4：fix_incorrect_toc — 批并发修正**
+
+- 错误条目批并发修正，约 8 秒
+
+**阶段 5：check_title_in_start + post_processing + generate_summaries**
+
+- 全并发，约 12 秒
+
+---
+
+**为什么 Mode A 比 Mode B 快，且页数增加影响极小？**
+
+- Mode A 只读目录页 + 目录后约 20 页样本（总计约 20 页），无论文档是 100 页还是 500 页，这个范围固定
+- 偏移量是**一次性算法推算**，不需要逐页或逐组扫描
+- 100 页文档和 200 页文档的顺序阶段耗时差异主要来自 `toc_transformer` 续写次数（目录更长需要多续写 1~2 次），而不是正文页数
+
+---
+
 ### `process_toc_with_page_numbers()` — 完整逐步解析（同步）
 
 ```python
@@ -842,6 +908,70 @@ def process_toc_no_page_numbers(toc_content, toc_page_list, page_list, start_ind
 ---
 
 ## 七、模式C详解：无目录
+
+### 完整执行路径（Mode C）
+
+**触发条件**：PDF 的前 20 页中找不到任何目录页，或有目录但验证 accuracy ≤ 0.6 触发二次降级。
+
+整个流程共 5 个阶段，**生成阶段全部顺序，后续验证阶段全部并发**：
+
+**阶段 1：find_toc_pages — 扫满 20 页，确认无目录**
+
+- 强制从第 1 页扫到第 20 页（`toc_check_page_num=20`），每页 1 次 LLM（**顺序**）
+- 全部找不到 → 进入 Mode C
+- 这 20 次顺序调用是 Mode C **最大的固定开销**（T=4s → 80 秒）
+- 注意：无论文档多短（哪怕只有 5 页），也必须扫满所有页，不提前退出
+
+**阶段 2：process_no_toc 内部 — 全文生成目录**
+
+步骤一：**page_list_to_group_text**（纯算法）
+
+- 全文按 20K token 切组，相邻组重叠 1 页
+- 100 页 → 约 4 组，200 页 → 约 7 组
+
+步骤二：**generate_toc_init**（顺序，1 次 LLM）
+
+- 只处理第 1 组文本
+- LLM 任务：从头生成完整层级目录，含所有层级的 `structure` 和 `physical_index`
+- 与 Mode B 的关键区别：Mode B 中目录结构已知（来自目录页），这里完全从正文内容推断
+
+步骤三：**generate_toc_continue**（循环顺序，每组 1 次 LLM）
+
+- 从第 2 组开始，每组携带**前序全部结果**作为上下文，续写新章节
+- **必须顺序**：每次续写依赖上次的完整输出
+- 输入会随组数增加而变大（历史目录越来越长）
+- 100 页文档：约 3 次续写；200 页文档：约 6 次续写
+
+**阶段 3：verify_toc — 并发验证准确率**
+
+- 所有条目**全并发**，约 4 秒
+- 早退条件：若最后一个有 physical_index 的条目 < 总页数 / 2，直接返回 accuracy=0
+- accuracy ≤ 0.6 → **抛出 Exception（无路可退，无第四种模式）**
+
+**阶段 4：fix_incorrect_toc — 批并发修正**
+
+- 错误条目批并发，约 8 秒
+
+**阶段 5：check_title_in_start + post_processing + generate_summaries**
+
+- 全并发，约 12 秒
+- 注意：`process_large_node_recursively` 在 Mode C 下基本是**空跑**
+  - 原因：generate_toc_init/continue 已经一次性提取了所有层级（包括子章节），不存在"未扫正文"的大节点
+  - 对比 Mode A：整个提取阶段只看目录页，递归是第一次真正读章节正文
+
+---
+
+**三种模式本质对比**
+
+| 维度 | Mode A（有页码） | Mode B（无页码） | Mode C（无目录） |
+| --- | --- | --- | --- |
+| 目录来源 | 目录页（含页码） | 目录页（无页码） | 从正文推断 |
+| 定位方式 | 偏移量推算（1 次采样） | 全文逐组扫描（N 次 LLM） | 全文续写生成（N 次 LLM） |
+| 递归作用 | **首次读章节正文**，提取子结构 | 同 Mode A | **基本空跑**（已全量提取） |
+| 阶段 1 耗时（目录检测） | 短（找到即止） | 短（找到即止） | **长**（强制扫 20 页） |
+| 正文页数对耗时的影响 | 极小（偏移算法固定） | 线性增加（每组 +4s） | 线性增加（每组 +4s） |
+
+---
 
 ### `process_no_toc()` — 从全文生成结构（同步）
 
